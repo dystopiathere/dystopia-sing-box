@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "process_name": [
+        "chrome.exe",
+        "msedge.exe",
+        "firefox.exe",
+        "opera.exe",
+        "brave.exe",
+        "vivaldi.exe",
+        "browser.exe"
+      ]
+    }
+  ]
+}

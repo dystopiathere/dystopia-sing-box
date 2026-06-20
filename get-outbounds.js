@@ -1,0 +1,191 @@
+#!/usr/bin/env node
+/**
+ * Parses a VLESS subscription (raw vless:// lines or base64-encoded list)
+ * into sing-box outbound JSON objects, wrapped in a urltest selector.
+ *
+ * Usage:
+ *   node get-outbounds.js <source> [output.json]
+ *
+ *   <source> — subscription URL (http/https) or path to a local file
+ *              containing either base64 subscription text or raw
+ *              newline-separated vless:// URIs.
+ *
+ *   [output.json] — optional output path (default: outbounds.json)
+ *
+ * Output is a ready-to-paste array for the top-level "outbounds" field:
+ *   [ {urltest "proxy"}, {vless ...}, {vless ...}, ..., {direct} ]
+ *
+ * Requires Node.js 18+ (global fetch).
+ */
+
+const fs = require("fs");
+const path = require("path");
+
+const SELECTOR_TAG = "proxy";
+const SELECTOR_TYPE = "urltest"; // change to "selector" if you want manual switching
+const TEST_URL = "https://www.gstatic.com/generate_204";
+
+async function getRawText(source) {
+  if (/^https?:\/\//i.test(source)) {
+    const res = await fetch(source);
+    if (!res.ok) throw new Error(`fetch failed: ${res.status} ${res.statusText}`);
+    return await res.text();
+  }
+  return fs.readFileSync(source, "utf-8");
+}
+
+function looksBase64(s) {
+  return /^[A-Za-z0-9+/=\s]+$/.test(s) && !s.includes("vless://");
+}
+
+function extractLines(raw) {
+  let text = raw.trim();
+  if (looksBase64(text)) {
+    try {
+      text = Buffer.from(text, "base64").toString("utf-8");
+    } catch {
+      // not base64 after all, fall through with original text
+    }
+  }
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("vless://"));
+}
+
+function slugify(input, fallback) {
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(input || "");
+    } catch {
+      return input || "";
+    }
+  })();
+  const slug = decoded
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // strip diacritics
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "") // strip emoji/symbols, keep letters/digits
+    .trim()
+    .replace(/\s+/g, "-")
+    .toLowerCase()
+    .slice(0, 40);
+  return slug || fallback;
+}
+
+function uniqueTag(base, used) {
+  let tag = base;
+  let i = 2;
+  while (used.has(tag)) {
+    tag = `${base}-${i++}`;
+  }
+  used.add(tag);
+  return tag;
+}
+
+function parseVlessUri(uri, used) {
+  const url = new URL(uri);
+  const uuid = decodeURIComponent(url.username);
+  const host = url.hostname;
+  const port = Number(url.port);
+  const q = url.searchParams;
+
+  const security = q.get("security") || "none"; // none | tls | reality
+  const network = q.get("type") || "tcp"; // tcp | ws | grpc | http
+  const flow = q.get("flow") || undefined;
+  const fp = q.get("fp");
+  const sni = q.get("sni");
+  const pbk = q.get("pbk");
+  const sid = q.get("sid");
+  const alpn = q.get("alpn");
+  const insecure = q.get("allowInsecure") === "1" || q.get("insecure") === "1";
+
+  const fallbackName = `${host}-${port}`;
+  const tag = uniqueTag(slugify(url.hash.slice(1), fallbackName), used);
+
+  const outbound = {
+    type: "vless",
+    tag,
+    server: host,
+    server_port: port,
+    uuid,
+    packet_encoding: "xudp",
+  };
+
+  if (flow) outbound.flow = flow;
+
+  if (security === "tls" || security === "reality") {
+    outbound.tls = { enabled: true };
+    if (sni) outbound.tls.server_name = sni;
+    if (alpn) outbound.tls.alpn = alpn.split(",");
+    if (insecure) outbound.tls.insecure = true;
+    if (fp) {
+      outbound.tls.utls = { enabled: true, fingerprint: fp };
+    }
+    if (security === "reality") {
+      outbound.tls.reality = { enabled: true };
+      if (pbk) outbound.tls.reality.public_key = pbk;
+      if (sid) outbound.tls.reality.short_id = sid;
+    }
+  }
+
+  if (network === "ws") {
+    const wsPath = q.get("path") || "/";
+    const wsHost = q.get("host");
+    outbound.transport = {
+      type: "ws",
+      path: wsPath,
+      ...(wsHost ? { headers: { Host: wsHost } } : {}),
+    };
+  } else if (network === "grpc") {
+    const serviceName = q.get("serviceName") || "";
+    outbound.transport = { type: "grpc", service_name: serviceName };
+  }
+  // network === "tcp" / "raw" needs no transport block
+
+  return outbound;
+}
+
+async function main() {
+  const [, , source, outPath = "outbounds.json"] = process.argv;
+  if (!source) {
+    console.error("Usage: node parse-vless-sub.js <subscription-url-or-file> [output.json]");
+    process.exit(1);
+  }
+
+  const raw = await getRawText(source);
+  const lines = extractLines(raw);
+
+  if (lines.length === 0) {
+    console.error("No vless:// entries found in source.");
+    process.exit(1);
+  }
+
+  const used = new Set();
+  const servers = lines
+    .map((uri) => {
+      try {
+        return parseVlessUri(uri, used);
+      } catch (err) {
+        console.error(`Skipping malformed URI: ${uri}\n  ${err.message}`);
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  const selector = {
+    type: SELECTOR_TYPE,
+    tag: SELECTOR_TAG,
+    outbounds: servers.map((s) => s.tag),
+    ...(SELECTOR_TYPE === "urltest" ? { url: TEST_URL, interval: "3m", tolerance: 50 } : { default: servers[0].tag }),
+  };
+
+  const result = { outbounds: [selector, ...servers, { type: "direct", tag: "direct" }] };
+
+  fs.writeFileSync(outPath, JSON.stringify(result, null, 2), "utf-8");
+  console.error(`Parsed ${servers.length} server(s) -> ${path.resolve(outPath)}`);
+}
+
+main().catch((err) => {
+  console.error(err.message);
+  process.exit(1);
+});

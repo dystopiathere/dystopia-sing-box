@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "process_name": ["Discord.exe", "discord.exe", "DiscordPTB.exe", "DiscordCanary.exe"]
+    }
+  ]
+}

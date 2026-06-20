@@ -1,0 +1,111 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-direct",
+        "server": "77.88.8.8"
+      },
+      {
+        "type": "https",
+        "tag": "dns-proxy",
+        "server": "1.1.1.1",
+        "detour": "proxy"
+      }
+    ],
+    "rules": [{ "rule_set": ["geoip-telegram"], "server": "dns-proxy" }],
+    "final": "dns-direct"
+  },
+
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "system"
+    }
+  ],
+
+  "route": {
+    "default_domain_resolver": "dns-direct",
+    "rules": [
+      { "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" },
+
+      { "ip_is_private": true, "outbound": "direct" },
+
+      { "rule_set": ["domains-direct"], "outbound": "direct" },
+      { "rule_set": ["domains-proxy"], "outbound": "proxy" },
+
+      { "rule_set": ["apps-discord"], "outbound": "proxy" },
+      { "rule_set": ["apps-telegram"], "outbound": "proxy" },
+      { "rule_set": ["geoip-telegram"], "outbound": "proxy" },
+
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [{ "rule_set": ["apps-browsers"] }, { "rule_set": ["geoip-ru"] }],
+        "outbound": "direct"
+      },
+      { "rule_set": ["apps-browsers"], "outbound": "proxy" }
+    ],
+
+    "rule_set": [
+      {
+        "tag": "geoip-telegram",
+        "type": "local",
+        "format": "binary",
+        "path": "rules/telegram.srs"
+      },
+      {
+        "tag": "geoip-ru",
+        "type": "local",
+        "format": "binary",
+        "path": "rules/geoip-ru.srs"
+      },
+
+      {
+        "tag": "apps-browsers",
+        "type": "local",
+        "format": "source",
+        "path": "lists/apps-browsers.json"
+      },
+      {
+        "tag": "apps-discord",
+        "type": "local",
+        "format": "source",
+        "path": "lists/apps-discord.json"
+      },
+      {
+        "tag": "apps-telegram",
+        "type": "local",
+        "format": "source",
+        "path": "lists/apps-telegram.json"
+      },
+
+      {
+        "tag": "domains-direct",
+        "type": "local",
+        "format": "source",
+        "path": "lists/domains-direct.json"
+      },
+      {
+        "tag": "domains-proxy",
+        "type": "local",
+        "format": "source",
+        "path": "lists/domains-proxy.json"
+      }
+    ],
+
+    "final": "direct",
+    "auto_detect_interface": true
+  }
+}

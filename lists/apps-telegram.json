@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "process_name": ["Telegram.exe", "Updater.exe"]
+    }
+  ]
+}
