@@ -1,28 +1,10 @@
-#!/usr/bin/env node
-/**
- * Parses a VLESS subscription (raw vless:// lines or base64-encoded list)
- * into a sing-box outbounds config, wrapped in a urltest selector.
- *
- * Usage:
- *   node get-outbounds.js <source>
- *
- *   <source> — subscription URL (http/https) or path to a local file
- *              containing either base64 subscription text or raw
- *              newline-separated vless:// URIs.
- *
- * Always writes to confd/02-outbounds.json, relative to this script's
- * own location — output path is fixed and not configurable.
- *
- * Requires Node.js 18+ (global fetch).
- */
-
 const fs = require("fs");
 const path = require("path");
 
 const OUT_PATH = path.join(__dirname, "confd", "02-outbounds.json");
 
 const SELECTOR_TAG = "proxy";
-const SELECTOR_TYPE = "urltest"; // change to "selector" if you want manual switching
+const SELECTOR_TYPE = "urltest";
 const TEST_URL = "https://www.gstatic.com/generate_204";
 
 async function getRawText(source) {
@@ -43,9 +25,7 @@ function extractLines(raw) {
   if (looksBase64(text)) {
     try {
       text = Buffer.from(text, "base64").toString("utf-8");
-    } catch {
-      // not base64 after all, fall through with original text
-    }
+    } catch {}
   }
   return text
     .split(/\r?\n/)
@@ -63,8 +43,8 @@ function slugify(input, fallback) {
   })();
   const slug = decoded
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "") // strip diacritics
-    .replace(/[^\p{L}\p{N}\s_-]/gu, "") // strip emoji/symbols, keep letters/digits
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
     .trim()
     .replace(/\s+/g, "-")
     .toLowerCase()
@@ -89,8 +69,8 @@ function parseVlessUri(uri, used) {
   const port = Number(url.port);
   const q = url.searchParams;
 
-  const security = q.get("security") || "none"; // none | tls | reality
-  const network = q.get("type") || "tcp"; // tcp | ws | grpc | http
+  const security = q.get("security") || "none";
+  const network = q.get("type") || "tcp";
   const flow = q.get("flow") || undefined;
   const fp = q.get("fp");
   const sni = q.get("sni");
@@ -140,7 +120,6 @@ function parseVlessUri(uri, used) {
     const serviceName = q.get("serviceName") || "";
     outbound.transport = { type: "grpc", service_name: serviceName };
   }
-  // network === "tcp" / "raw" needs no transport block
 
   return outbound;
 }
