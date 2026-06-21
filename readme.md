@@ -1,4 +1,4 @@
-# vpn — sing-box based VPN для Windows
+# sing-box based VPN для Windows
 
 Конфигурация [sing-box](https://sing-box.sagernet.org/) в режиме TUN с раздельной маршрутизацией:
 
