@@ -27,10 +27,9 @@
       "type": "tun",
       "tag": "tun-in",
       "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
-      "mtu": 1500,
+      "mtu": 9000,
       "auto_route": true,
       "strict_route": true,
-      "route_exclude_address_set": ["ips-direct"],
       "stack": "system"
     }
   ],
@@ -39,13 +38,14 @@
     "default_domain_resolver": "dns-direct",
     "rules": [
       { "action": "sniff" },
-
       { "protocol": "dns", "action": "hijack-dns" },
 
       { "ip_is_private": true, "outbound": "direct" },
 
       { "rule_set": ["domains-direct"], "outbound": "direct" },
       { "rule_set": ["domains-proxy"], "outbound": "proxy" },
+
+      { "rule_set": ["ips-direct"], "outbound": "direct" },
       { "rule_set": ["ips-proxy"], "outbound": "proxy" },
 
       { "rule_set": ["apps-custom"], "outbound": "proxy" },
@@ -131,7 +131,6 @@
     ],
 
     "final": "direct",
-    "auto_detect_interface": true,
-    "find_process": true
+    "auto_detect_interface": true
   }
 }
